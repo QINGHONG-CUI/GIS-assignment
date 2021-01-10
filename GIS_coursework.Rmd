@@ -1,0 +1,470 @@
+---
+title: "GIS_coursework"
+author: "QinghongCUI"
+date: "10/01/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+```
+
+
+```{r}
+library(tidyverse)
+library(moderndive)
+install.packages("skimr")
+library(skimr)
+install.packages("gapminder")
+library(gapminder)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(stringr)
+library(forcats)
+install.packages("moderndive")
+library(moderndive)
+install.packages("skimr")
+library(skimr)
+install.packages("ISLR")
+library(ISLR)
+library(sf)
+install.packages("plotly")
+library(plotly)
+install.packages("maptools")
+install.packages(c("classInt", "tmap"))
+install.packages(c("RColorBrewer", "sp", "rgeos", 
+                   "tmaptools", "sf", "downloader", "rgdal", 
+                   "geojsonio"))
+library(maptools)
+library(RColorBrewer)
+library(classInt)
+library(sp)
+library(rgeos)
+library(tmap)
+library(tmaptools)
+library(sf)
+library(rgdal)
+library(geojsonio)
+library(tmap)
+library(tmaptools)
+install.packages("broom")
+library(broom)
+install.packages("car")
+library(car)
+install.packages("spdep")
+library(spdep)
+library(spatialreg)
+library(spgwr)
+library(base)
+library(broom)
+library(grid)
+
+```
+```{r}
+#import map data
+Ward <- st_read(here::here("ESRI",
+                           "London_Ward_CityMerged.shp")) %>%
+  st_transform(., 27700)
+qtm(Ward)
+summary(Ward)
+```
+
+
+```{r}
+#import two datasets
+data <- read_csv("3.1.csv",
+                        na = c("", "NA", "n/a"), 
+                        locale = locale(encoding = 'Latin1'), 
+                        col_names = TRUE)
+data2 <- read_csv("3.2.csv",
+                 na = c("", "NA", "n/a"), 
+                 locale = locale(encoding = 'Latin1'), 
+                 col_names = TRUE)
+```
+
+
+```{r}
+#combine datasets
+Alldata <- data %>%
+  left_join(.,data2,
+            by=c("New ward code"="New ward code"))
+##delete useless
+Alldata <- Alldata[,c(-5,-6)]
+#check up
+Datatypelist <- Alldata %>% 
+  summarise_all(class) %>%
+  pivot_longer(everything(), 
+               names_to="All_variables", 
+               values_to="Variable_class")
+
+Datatypelist
+```
+
+
+```{r}
+#Descriptive statistics of the original data
+install.packages("stargazer")  
+library(stargazer)
+mydata <- Alldata
+mydata <- as.data.frame(mydata)
+stargazer(mydata,type = "text", title="Statistical description for all indicators",digits=3,out="statistical description3.txt",
+          covariate.labels=c("CIP","HFP","ICB","UEP","CRM","LEP") )
+```
+
+
+```{r}
+#rename variables
+library(janitor)
+Alldata <- Alldata %>%
+     dplyr::rename(CIP='childrenpoverty',HFP='householdsfuelpoor',ICB='Incapacity Benefit rate - 2009',
+                  UEP='Unemployment rate 2009',CRM='Crime rate - 2009',LEP='Life Expectancy 2005-2009')
+
+Alldata <- Alldata %>%
+  dplyr::rename(Ward_name='Ward.x',Ward_code='New ward code')
+```
+
+
+```{r}
+#Entropy weight method is applied to independent variables
+##select independent variables needed
+independentdata <- Alldata[,c(3,4,5,6,7)]
+##standardized data
+###Normalized maximum minimum processing
+min.max.norm<-function(x){
+  (x-min(x))/(max(x)-min(x))
+}
+max.min.norm<-function(x){
+  (max(x)-x)/(max(x)-min(x))
+}
+```
+
+
+```{r}
+###deal with positive indicators(we don't have negative indicators)
+positive <- apply(independentdata[,c(1,2,3,4,5)],2,min.max.norm) 
+```
+
+
+```{r}
+##calculate total contribution of all samples to indicators
+step1 <- function(data)
+{
+  x <- c(data)
+  for(i in 1:length(data))
+    x[i] = data[i]/sum(data[])
+  return(x)
+}
+dataframe <- apply(positive,2,step1)
+```
+
+
+```{r}
+##calculate the entropy values
+step2 <- function(data)
+{
+  x <- c(data)
+  for(i in 1:length(data)){
+    if(data[i] == 0){
+      x[i] = 0
+    }else{
+      x[i] = data[i] * log(data[i])
+    }
+  }
+  return(x)
+}
+dataframe1 <- apply(dataframe,2,step2)
+
+k <- 1/log(length(dataframe1[,1]))
+d <- -k * colSums(dataframe1)
+```
+
+
+```{r}
+##Computing redundancy
+d <- 1-d
+##Computing weights for all indicators
+weights1 <- d/sum(d)
+weights1
+```
+
+
+```{r}
+#Calculate the values of social deprivation for all wards by weights
+positive <- as.data.frame(positive)
+socialdeprivation <- positive %>%
+  mutate(SD=0.2602*CIP+0.1308*HFP+0.1728*ICB+0.2695*UEP+0.1667*CRM)
+code <- Alldata %>%
+  dplyr::select(Ward_code)
+SDdata <- cbind(code,socialdeprivation)
+```
+
+
+```{r}
+#plot SD map
+WardMap <- Ward %>%
+  left_join(.,SDdata,
+            by = c("GSS_CODE" = "Ward_code"))
+
+library(tmap)
+library(tmaptools)
+tmap_mode("plot")
+qtm(WardMap, 
+    fill = "SD")
+```
+
+
+```{r}
+#plot a better one
+my_breaks <- c(0,0.2,0.4,0.6,0.8)
+
+tmap_mode("plot")
+tm1 <- tm_shape(WardMap) + 
+  tm_polygons("SD", 
+              breaks=my_breaks,
+              palette="YlOrBr")+
+  tm_legend(show=FALSE)+
+  tm_layout(frame=FALSE)
+
+legend <- tm_shape(WardMap) +
+  tm_polygons("SD",
+              palette="YlOrBr",position=c(0.01,0.1)) +
+  tm_scale_bar(position=c(0.07,0.2), text.size=0.6)+
+  tm_compass(north=0,type='8star',size=5,position=c(0.1,0.6))+
+  tm_layout(legend.only = TRUE, legend.text.size=1,legend.position=c(0.1,0.3),asp=0.1)
+###arrange them
+grid.newpage()
+
+pushViewport(viewport(layout=grid.layout(1,2)))
+print(tm1, vp=viewport(layout.pos.col=1, layout.pos.row=1, height=5))
+print(legend, vp=viewport(layout.pos.col=2, layout.pos.row=1, height=5))
+```
+
+
+```{r}
+#-----------------------------------part 2------------------------------------
+##add the life expectancy
+life <- Alldata %>%
+  dplyr::select(c(1,8))
+
+WardMap <- WardMap %>%
+  left_join(.,life,
+            by = c("GSS_CODE" = "Ward_code"))
+```
+
+
+```{r}
+#check the distributions of variables
+histplot <- ggplot(data=WardMap, aes(x=SD))
+histplot +geom_histogram() ##SD is normal distribution nearly
+histplot <- ggplot(data=WardMap, aes(x=LEP))
+histplot +geom_histogram()  ##LEP is normal distribution nearly
+```
+
+
+```{r}
+## SD and LEP relationship roughly
+q <- qplot(x = `SD`, 
+           y = `LEP`, 
+           data=WardMap)
+q + stat_smooth(method="lm", se=FALSE, size=1) + 
+  geom_jitter()
+
+```
+
+
+```{r}
+##OLS for SD and LEP
+OLSmodel <- WardMap %>%
+  lm(LEP ~ SD,
+     data=.)
+summary(OLSmodel) #results are significant，R-squared is0.5032，coefficient is -11.31
+
+tidy(OLSmodel)
+```
+
+
+```{r}
+##Residual test
+WardMap$res_SD <- residuals(OLSmodel)
+WardMap%>%
+  dplyr::select(res_SD)%>%
+  pull()%>%
+  qplot()+ 
+  geom_histogram() 
+##Homogeneous variance of test residuals
+par(mfrow=c(2,2))  
+plot(OLSmodel) 
+##Durbin-Watson test
+DW_LEP <- durbinWatsonTest(OLSmodel)
+tidy(DW_LEP)
+
+```
+
+
+```{r}
+## check spatial autocorrelation
+tmap_mode("view")
+tm_shape(WardMap) +
+  tm_polygons("res_SD",
+              palette = "RdYlBu") 
+```
+
+
+```{r}
+#a better one for display
+my_breaks2 <- c(-6,-4,-2,0,2,4,6,8)
+
+tmap_mode("plot")
+tm2 <- tm_shape(WardMap) + 
+  tm_polygons("res_SD", 
+              breaks=my_breaks2,
+              palette="RdYlBu")+
+  tm_legend(show=FALSE)+
+  tm_layout(frame=FALSE)
+
+legend2 <- tm_shape(WardMap) +
+  tm_polygons("res_SD",
+              palette="RdYlBu",position=c(0.01,0.1)) +
+  tm_scale_bar(position=c(0.07,0.2), text.size=0.6)+
+  tm_compass(north=0,type='8star',size=5,position=c(0.1,0.75))+
+  tm_layout(legend.only = TRUE, legend.text.size=1,legend.position=c(0.1,0.3),asp=0.1)
+###arrange them
+grid.newpage()
+
+pushViewport(viewport(layout=grid.layout(1,2)))
+print(tm2, vp=viewport(layout.pos.col=1, layout.pos.row=1, height=5))
+print(legend2, vp=viewport(layout.pos.col=2, layout.pos.row=1, height=5))
+```
+
+
+```{r}
+##Moran'I test for spatial autocorrelation
+
+###calculate the centroids for all wards
+coordsw <- WardMap%>%
+  st_centroid()%>%
+  st_geometry()
+plot(coordsw)
+
+LWard_nb <- WardMap %>%
+  poly2nb(., queen=T)
+
+knn_wards <-coordsw %>%
+  knearneigh(., k=4)
+
+LWard_knn <- knn_wards %>%
+  knn2nb()
+plot(LWard_nb, st_geometry(coordsw), col="red")
+plot(LWard_knn, st_geometry(coordsw), col="blue")
+
+Lward.queens_weight <- LWard_nb %>%
+  nb2listw(., style="C")
+
+Lward.knn_4_weight <- LWard_knn %>%
+  nb2listw(., style="C")
+##Moran'I test
+Queen <- WardMap %>%
+  st_drop_geometry()%>%
+  dplyr::select(res_SD)%>%
+  pull()%>%
+  moran.test(., Lward.queens_weight)%>%
+  tidy()
+Nearest_neighbour <- WardMap %>%
+  st_drop_geometry()%>%
+  dplyr::select(res_SD)%>%
+  pull()%>%
+  moran.test(., Lward.knn_4_weight)%>%
+  tidy()
+
+```
+
+
+```{r}
+####test results integration
+MoransIresults <- rbind(Queen,Nearest_neighbour) 
+#######add names
+testnames <- c('Queen','K-nearest')
+testnames <- as.data.frame(testnames)
+MoransIresults <- cbind(testnames,MoransIresults)
+MoransIresults
+```
+
+
+```{r}
+#--------------------------------------part 3----------------------------------------
+##SLM_queen firstly
+SLM_queen <- lagsarlm(LEP ~SD, 
+                    data = WardMap, 
+                    nb2listw(LWard_nb, style="C"), 
+                    method = "eigen")
+tidy(SLM_queen)
+glance(SLM_queen)
+summary(SLM_queen) ##Rho is insignificant
+
+###try SLM_knn4
+SLM_knn4 <- lagsarlm(LEP ~ SD, 
+                                data = WardMap, 
+                                nb2listw(LWard_knn, 
+                                         style="C"), 
+                                method = "eigen")
+
+tidy(SLM_knn4)
+glance(SLM_knn4)
+summary(SLM_knn4) ##found SLM-knn4 has a better result than SLM--queen
+```
+
+
+```{r}
+###check SLM_knn4 residuals whether is spatial autocorrelation or not
+WardMap <- WardMap %>%
+  mutate(SLM_knn_resids = residuals(SLM_knn4))
+
+SLMMoran <- WardMap %>%
+  st_drop_geometry()%>%
+  dplyr::select(SLM_knn_resids)%>%
+  pull()%>%
+  moran.test(., Lward.knn_4_weight)%>%
+  tidy()
+
+SLMMoran  ##good
+```
+
+
+```{r}
+##SEM
+SEM_model <- errorsarlm(LEP ~ SD, 
+                         data = WardMap,
+                         nb2listw(LWard_knn, style="C"), 
+                         method = "eigen")
+
+tidy(SEM_model)
+summary(SEM_model)
+glance(SEM_model)  #compared the results, choose the SEM at last
+```
+
